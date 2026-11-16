@@ -2,51 +2,93 @@
 -- LT2 Mobile Mod Menu | by Kanha
 -- Engine  : Roblox Luau (LocalScript via Executor)
 -- Target  : Android / Mobile
--- Verified: All paths, remotes and TreeClass values confirmed
---           across multiple community sources and LT2 wiki.
+-- Fixed   : v2 — 3 bugs patched (see changelog below)
+-- ----------------------------------------------------------------
+-- CHANGELOG v2:
+--   FIX 1 (CRITICAL) — Removed top-level WaitForChild calls for
+--           RemoteProxy and ClientDragging. These caused a silent
+--           infinite hang before any GUI appeared. Replaced with
+--           lazy getters using FindFirstChild (safe, no yield).
+--   FIX 2  — Added task library safety shim. Older Delta builds
+--           on Android have partial task support. Shim falls back
+--           to legacy wait/spawn/delay automatically.
+--   FIX 3  — Added missing Silver Axe (Axe3) and Hardened Axe
+--           (HardenedAxe) to AXE_PRIORITY list, correctly ordered
+--           by DPS.
 -- ================================================================
 
 -- ── SERVICES ─────────────────────────────────────────────────────
-local Players        = game:GetService("Players")
-local RS             = game:GetService("ReplicatedStorage")
-local UIS            = game:GetService("UserInputService")
-local RunService     = game:GetService("RunService")
-local TweenService   = game:GetService("TweenService")
+local Players      = game:GetService("Players")
+local RS           = game:GetService("ReplicatedStorage")
+local UIS          = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
 
-local LP             = Players.LocalPlayer
+local LP           = Players.LocalPlayer
 
--- ── VERIFIED LT2 REMOTES ─────────────────────────────────────────
--- Source: github.com/7TWBE49Js4Tak7GL8iIZLCLr4M8jJHZB4HFA12K/lt2
--- Source: github.com/Kykyry3kin/Lumber-Tycoon-2-Wood-Script
-local RemoteProxy    = RS:WaitForChild("Interaction"):WaitForChild("RemoteProxy")
-local ClientDragging = RS:WaitForChild("Interaction"):WaitForChild("ClientIsDragging")
+-- ════════════════════════════════════════════════════════════════
+--  FIX 2: task LIBRARY SAFETY SHIM
+--  Older Delta Android builds may not have full task support.
+--  This shim falls back to legacy globals automatically.
+-- ════════════════════════════════════════════════════════════════
+local taskWait  = (task and task.wait)  or wait
+local taskSpawn = (task and task.spawn) or spawn
+local taskDelay = (task and task.delay) or delay
+
+-- ════════════════════════════════════════════════════════════════
+--  FIX 1: LAZY REMOTE GETTERS (no top-level WaitForChild)
+--  RemoteProxy and ClientDragging are only fetched when first
+--  needed — never at script load time — so the GUI always appears
+--  regardless of whether Interaction has replicated yet.
+-- ════════════════════════════════════════════════════════════════
+local _RemoteProxy    = nil
+local _ClientDragging = nil
+
+local function getRemoteProxy()
+    if _RemoteProxy and _RemoteProxy.Parent then
+        return _RemoteProxy
+    end
+    local interaction = RS:FindFirstChild("Interaction")
+    if not interaction then return nil end
+    _RemoteProxy = interaction:FindFirstChild("RemoteProxy")
+    return _RemoteProxy
+end
+
+local function getClientDragging()
+    if _ClientDragging and _ClientDragging.Parent then
+        return _ClientDragging
+    end
+    local interaction = RS:FindFirstChild("Interaction")
+    if not interaction then return nil end
+    _ClientDragging = interaction:FindFirstChild("ClientIsDragging")
+    return _ClientDragging
+end
 
 -- ── VERIFIED WOOD TYPES ───────────────────────────────────────────
 -- Source: lumber-tycoon-2.fandom.com/wiki/Category:Wood
 -- TreeClass.Value strings confirmed from community scripts
 local WOOD_TYPES = {
     -- Common (Main Biome / Safari)
-    { name = "Oak",         class = "Oak",          emoji = "🌳", tier = "common" },
-    { name = "Elm",         class = "Elm",          emoji = "🌲", tier = "common" },
-    { name = "Cherry",      class = "Cherry",       emoji = "🌸", tier = "common" },
+    { name = "Oak",         class = "Oak",         emoji = "🌳", tier = "common" },
+    { name = "Elm",         class = "Elm",         emoji = "🌲", tier = "common" },
+    { name = "Cherry",      class = "Cherry",      emoji = "🌸", tier = "common" },
     -- Mid Tier
-    { name = "Birch",       class = "Birch",        emoji = "⬜", tier = "mid"    },
-    { name = "Walnut",      class = "Walnut",       emoji = "🟫", tier = "mid"    },
-    { name = "Koa",         class = "Koa",          emoji = "🌴", tier = "mid"    },
-    { name = "Fir",         class = "Fir",          emoji = "🌲", tier = "mid"    },
-    { name = "Pine",        class = "Pine",         emoji = "🌲", tier = "mid"    },
-    { name = "Palm",        class = "Palm",         emoji = "🌴", tier = "mid"    },
+    { name = "Birch",       class = "Birch",       emoji = "⬜", tier = "mid"    },
+    { name = "Walnut",      class = "Walnut",      emoji = "🟫", tier = "mid"    },
+    { name = "Koa",         class = "Koa",         emoji = "🌴", tier = "mid"    },
+    { name = "Fir",         class = "Fir",         emoji = "🌲", tier = "mid"    },
+    { name = "Pine",        class = "Pine",        emoji = "🌲", tier = "mid"    },
+    { name = "Palm",        class = "Palm",        emoji = "🌴", tier = "mid"    },
     -- Rare
-    { name = "Volcano",     class = "Volcano",      emoji = "🌋", tier = "rare"   },
-    { name = "Zombie",      class = "Zombie",       emoji = "🧟", tier = "rare"   },
-    { name = "Gold",        class = "Gold",         emoji = "✨", tier = "rare"   },
-    { name = "Frost",       class = "Frost",        emoji = "❄️", tier = "rare"   },
-    { name = "Cavecrawler", class = "Cavecrawler",  emoji = "💙", tier = "rare"   },
+    { name = "Volcano",     class = "Volcano",     emoji = "🌋", tier = "rare"   },
+    { name = "Zombie",      class = "Zombie",      emoji = "🧟", tier = "rare"   },
+    { name = "Gold",        class = "Gold",        emoji = "✨", tier = "rare"   },
+    { name = "Frost",       class = "Frost",       emoji = "❄️", tier = "rare"   },
+    { name = "Cavecrawler", class = "Cavecrawler", emoji = "💙", tier = "rare"   },
     -- Exotic / Seasonal
-    { name = "Phantom",     class = "LoneCave",     emoji = "👻", tier = "exotic" },
-    { name = "Snowglow",    class = "Snowglow",     emoji = "🌟", tier = "exotic" },
-    { name = "Spooky",      class = "Spooky",       emoji = "🎃", tier = "exotic" },
-    { name = "Sinister",    class = "Sinister",     emoji = "☠️", tier = "exotic" },
+    { name = "Phantom",     class = "LoneCave",    emoji = "👻", tier = "exotic" },
+    { name = "Snowglow",    class = "Snowglow",    emoji = "🌟", tier = "exotic" },
+    { name = "Spooky",      class = "Spooky",      emoji = "🎃", tier = "exotic" },
+    { name = "Sinister",    class = "Sinister",    emoji = "☠️", tier = "exotic" },
 }
 
 -- ── TIER COLOURS ─────────────────────────────────────────────────
@@ -75,9 +117,8 @@ local COL = {
 }
 
 -- ── STATE ────────────────────────────────────────────────────────
-local running        = false
-local savedCFrame    = nil
-local currentTask    = nil
+local running     = false
+local savedCFrame = nil
 
 -- ════════════════════════════════════════════════════════════════
 --  GUI BUILDER HELPERS
@@ -104,40 +145,37 @@ local function stroke(parent, colour, thickness)
 end
 
 local function shadow(parent)
-    -- Lightweight drop-shadow via ImageLabel
-    local sh = newInstance("ImageLabel", {
-        Name               = "Shadow",
-        AnchorPoint        = Vector2.new(0.5, 0.5),
+    newInstance("ImageLabel", {
+        Name                   = "Shadow",
+        AnchorPoint            = Vector2.new(0.5, 0.5),
         BackgroundTransparency = 1,
-        Position           = UDim2.new(0.5, 0, 0.5, 4),
-        Size               = UDim2.new(1, 24, 1, 24),
-        ZIndex             = -1,
-        Image              = "rbxassetid://6014261993",
-        ImageColor3        = Color3.new(0, 0, 0),
-        ImageTransparency  = 0.55,
-        ScaleType          = Enum.ScaleType.Slice,
-        SliceCenter        = Rect.new(49, 49, 450, 450),
-        Parent             = parent,
+        Position               = UDim2.new(0.5, 0, 0.5, 4),
+        Size                   = UDim2.new(1, 24, 1, 24),
+        ZIndex                 = -1,
+        Image                  = "rbxassetid://6014261993",
+        ImageColor3            = Color3.new(0, 0, 0),
+        ImageTransparency      = 0.55,
+        ScaleType              = Enum.ScaleType.Slice,
+        SliceCenter            = Rect.new(49, 49, 450, 450),
+        Parent                 = parent,
     })
-    return sh
 end
 
--- ── DRAG LOGIC (Touch + Mouse, Roblox DevForum verified pattern) ──
+-- ── DRAG LOGIC (Touch + Mouse — Roblox DevForum verified pattern) ─
 local function makeDraggable(frame)
-    local dragging   = false
-    local dragInput  = nil
-    local dragStart  = nil
-    local startPos   = nil
+    local dragging  = false
+    local dragInput = nil
+    local dragStart = nil
+    local startPos  = nil
 
     local function update(input)
-        local delta   = input.Position - dragStart
-        local newPos  = UDim2.new(
+        local delta = input.Position - dragStart
+        frame.Position = UDim2.new(
             startPos.X.Scale,
             startPos.X.Offset + delta.X,
             startPos.Y.Scale,
             startPos.Y.Offset + delta.Y
         )
-        frame.Position = newPos
     end
 
     frame.InputBegan:Connect(function(input)
@@ -172,7 +210,6 @@ end
 --  BUILD GUI
 -- ════════════════════════════════════════════════════════════════
 
--- Remove any previous instance
 local existing = game:GetService("CoreGui"):FindFirstChild("KanhaLT2Menu")
 if existing then existing:Destroy() end
 
@@ -183,15 +220,15 @@ local ScreenGui = newInstance("ScreenGui", {
     Parent         = game:GetService("CoreGui"),
 })
 
--- ── STATUS TOAST (top of screen notification) ────────────────────
+-- ── TOAST ────────────────────────────────────────────────────────
 local Toast = newInstance("Frame", {
-    Name              = "Toast",
-    AnchorPoint       = Vector2.new(0.5, 0),
-    BackgroundColor3  = COL.panel,
-    Position          = UDim2.new(0.5, 0, 0, -60),
-    Size              = UDim2.new(0.85, 0, 0, 44),
-    ZIndex            = 20,
-    Parent            = ScreenGui,
+    Name             = "Toast",
+    AnchorPoint      = Vector2.new(0.5, 0),
+    BackgroundColor3 = COL.panel,
+    Position         = UDim2.new(0.5, 0, 0, -60),
+    Size             = UDim2.new(0.85, 0, 0, 44),
+    ZIndex           = 20,
+    Parent           = ScreenGui,
 })
 corner(Toast, 10)
 stroke(Toast, COL.accent, 1)
@@ -219,29 +256,28 @@ local function showToast(msg, colour)
             TweenInfo.new(0.25, Enum.EasingStyle.Quad),
             { Position = UDim2.new(0.5, 0, 0, 10) }
         ):Play()
-        task.delay(2.8, function()
+        -- FIX 2: taskDelay instead of task.delay
+        taskDelay(2.8, function()
             TweenService:Create(Toast,
                 TweenInfo.new(0.25, Enum.EasingStyle.Quad),
                 { Position = UDim2.new(0.5, 0, 0, -60) }
             ):Play()
-            task.wait(0.3)
+            taskWait(0.3)
             toastShowing = false
         end)
-    else
-        -- just update text if already visible
     end
 end
 
 -- ── MAIN PANEL ───────────────────────────────────────────────────
 local Panel = newInstance("Frame", {
-    Name              = "Panel",
-    AnchorPoint       = Vector2.new(0, 0),
-    BackgroundColor3  = COL.bg,
-    Position          = UDim2.new(0, 10, 0, 10),
-    Size              = UDim2.new(0, 310, 0.88, 0),
-    Visible           = false,
-    ZIndex            = 10,
-    Parent            = ScreenGui,
+    Name             = "Panel",
+    AnchorPoint      = Vector2.new(0, 0),
+    BackgroundColor3 = COL.bg,
+    Position         = UDim2.new(0, 10, 0, 10),
+    Size             = UDim2.new(0, 310, 0.88, 0),
+    Visible          = false,
+    ZIndex           = 10,
+    Parent           = ScreenGui,
 })
 corner(Panel, 14)
 stroke(Panel, COL.accent, 1.5)
@@ -256,8 +292,7 @@ local Header = newInstance("Frame", {
     Parent           = Panel,
 })
 corner(Header, 14)
--- Square bottom corners on header
-newInstance("Frame", {
+newInstance("Frame", {   -- fills rounded top so bottom stays square
     BackgroundColor3 = COL.header,
     Size             = UDim2.new(1, 0, 0.5, 0),
     Position         = UDim2.new(0, 0, 0.5, 0),
@@ -265,7 +300,7 @@ newInstance("Frame", {
     Parent           = Header,
 })
 
-local TitleLabel = newInstance("TextLabel", {
+newInstance("TextLabel", {
     BackgroundTransparency = 1,
     Position               = UDim2.new(0, 14, 0, 0),
     Size                   = UDim2.new(1, -60, 1, 0),
@@ -279,16 +314,16 @@ local TitleLabel = newInstance("TextLabel", {
 })
 
 local CloseBtn = newInstance("TextButton", {
-    AnchorPoint       = Vector2.new(1, 0.5),
-    BackgroundColor3  = Color3.fromRGB(180, 40, 40),
-    Position          = UDim2.new(1, -10, 0.5, 0),
-    Size              = UDim2.new(0, 36, 0, 36),
-    Font              = Enum.Font.GothamBold,
-    Text              = "✕",
-    TextColor3        = COL.white,
-    TextSize          = 18,
-    ZIndex            = 13,
-    Parent            = Header,
+    AnchorPoint      = Vector2.new(1, 0.5),
+    BackgroundColor3 = Color3.fromRGB(180, 40, 40),
+    Position         = UDim2.new(1, -10, 0.5, 0),
+    Size             = UDim2.new(0, 36, 0, 36),
+    Font             = Enum.Font.GothamBold,
+    Text             = "✕",
+    TextColor3       = COL.white,
+    TextSize         = 18,
+    ZIndex           = 13,
+    Parent           = Header,
 })
 corner(CloseBtn, 10)
 
@@ -330,41 +365,27 @@ local StopBtn = newInstance("TextButton", {
 })
 corner(StopBtn, 10)
 
--- Tier labels + scroll list
-local function tierLabel(text, yPos)
-    local lbl = newInstance("TextLabel", {
-        BackgroundTransparency = 1,
-        Position               = UDim2.new(0, 14, 0, yPos),
-        Size                   = UDim2.new(1, -28, 0, 24),
-        Font                   = Enum.Font.GothamBold,
-        Text                   = text,
-        TextColor3             = COL.subtext,
-        TextSize               = 11,
-        TextXAlignment         = Enum.TextXAlignment.Left,
-        ZIndex                 = 11,
-        Parent                 = Panel,
-    })
-    return lbl
-end
-
--- Scroll container
+-- Scroll frame
 local ScrollFrame = newInstance("ScrollingFrame", {
     BackgroundTransparency = 1,
     Position               = UDim2.new(0, 8, 0, 152),
-    Size                   = UDim2.new(1, -16, 1, -160),
-    CanvasSize             = UDim2.new(0, 0, 0, 0),   -- set dynamically
+    Size                   = UDim2.new(1, -16, 1, -204),
+    CanvasSize             = UDim2.new(0, 0, 0, 0),
     ScrollBarThickness     = 3,
     ScrollBarImageColor3   = COL.accent,
     ZIndex                 = 11,
     Parent                 = Panel,
 })
 
--- UIListLayout inside scroll
 local listLayout = newInstance("UIListLayout", {
-    Padding         = UDim.new(0, 6),
-    SortOrder       = Enum.SortOrder.LayoutOrder,
-    Parent          = ScrollFrame,
+    Padding     = UDim.new(0, 6),
+    SortOrder   = Enum.SortOrder.LayoutOrder,
+    Parent      = ScrollFrame,
 })
+
+listLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+    ScrollFrame.CanvasSize = UDim2.new(0, 0, 0, listLayout.AbsoluteContentSize.Y + 10)
+end)
 
 -- Build wood buttons grouped by tier
 local tierOrder = { "common", "mid", "rare", "exotic" }
@@ -379,9 +400,8 @@ local woodButtons = {}
 local layoutOrder = 0
 
 for _, tier in ipairs(tierOrder) do
-    -- Section header
     layoutOrder = layoutOrder + 1
-    local secLabel = newInstance("TextLabel", {
+    newInstance("TextLabel", {
         BackgroundTransparency = 1,
         Size                   = UDim2.new(1, -8, 0, 22),
         Font                   = Enum.Font.GothamBold,
@@ -409,7 +429,7 @@ for _, tier in ipairs(tierOrder) do
             })
             corner(btn, 10)
 
-            -- Colour accent stripe on left
+            -- Left colour stripe
             local stripe = newInstance("Frame", {
                 BackgroundColor3 = TIER_COLOUR[tier],
                 Size             = UDim2.new(0, 4, 1, -12),
@@ -447,21 +467,21 @@ for _, tier in ipairs(tierOrder) do
 
             -- Tier badge
             local badge = newInstance("TextLabel", {
-                BackgroundColor3 = TIER_COLOUR[tier],
+                BackgroundColor3       = TIER_COLOUR[tier],
                 BackgroundTransparency = 0.5,
-                Position         = UDim2.new(0, 52, 0, 26),
-                Size             = UDim2.new(0, 56, 0, 14),
-                Font             = Enum.Font.GothamBold,
-                Text             = tier:upper(),
-                TextColor3       = COL.white,
-                TextSize         = 9,
-                ZIndex           = 13,
-                Parent           = btn,
+                Position               = UDim2.new(0, 52, 0, 26),
+                Size                   = UDim2.new(0, 56, 0, 14),
+                Font                   = Enum.Font.GothamBold,
+                Text                   = tier:upper(),
+                TextColor3             = COL.white,
+                TextSize               = 9,
+                ZIndex                 = 13,
+                Parent                 = btn,
             })
             corner(badge, 4)
 
-            -- Chop indicator (right side)
-            local chopInd = newInstance("TextLabel", {
+            -- Arrow indicator
+            newInstance("TextLabel", {
                 BackgroundTransparency = 1,
                 AnchorPoint            = Vector2.new(1, 0.5),
                 Position               = UDim2.new(1, -10, 0.5, 0),
@@ -474,7 +494,6 @@ for _, tier in ipairs(tierOrder) do
                 Parent                 = btn,
             })
 
-            -- Hover effect
             btn.MouseEnter:Connect(function()
                 btn.BackgroundColor3 = COL.btnHover
             end)
@@ -487,60 +506,36 @@ for _, tier in ipairs(tierOrder) do
     end
 end
 
--- Set canvas size from layout
-listLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
-    ScrollFrame.CanvasSize = UDim2.new(0, 0, 0, listLayout.AbsoluteContentSize.Y + 10)
-end)
+-- Equip Best Axe shortcut button
+local EquipBtn = newInstance("TextButton", {
+    BackgroundColor3 = Color3.fromRGB(40, 80, 40),
+    Position         = UDim2.new(0, 8, 1, -54),
+    Size             = UDim2.new(1, -16, 0, 42),
+    Font             = Enum.Font.GothamBold,
+    Text             = "🪓  Equip Best Axe",
+    TextColor3       = COL.white,
+    TextSize         = 15,
+    ZIndex           = 11,
+    Parent           = Panel,
+})
+corner(EquipBtn, 10)
 
--- ── FLOATING ACTION BUTTON (FAB) ──────────────────────────────────
+-- ── FLOATING ACTION BUTTON ────────────────────────────────────────
 local FAB = newInstance("TextButton", {
-    Name              = "FAB",
-    AnchorPoint       = Vector2.new(1, 1),
-    BackgroundColor3  = COL.fab,
-    Position          = UDim2.new(1, -18, 1, -100),
-    Size              = UDim2.new(0, 60, 0, 60),
-    Font              = Enum.Font.GothamBold,
-    Text              = "🪓",
-    TextSize          = 26,
-    ZIndex            = 15,
-    Parent            = ScreenGui,
+    Name             = "FAB",
+    AnchorPoint      = Vector2.new(1, 1),
+    BackgroundColor3 = COL.fab,
+    Position         = UDim2.new(1, -18, 1, -100),
+    Size             = UDim2.new(0, 60, 0, 60),
+    Font             = Enum.Font.GothamBold,
+    Text             = "🪓",
+    TextSize         = 26,
+    ZIndex           = 15,
+    Parent           = ScreenGui,
 })
 corner(FAB, 30)
 stroke(FAB, Color3.fromRGB(140, 100, 220), 2)
 shadow(FAB)
 makeDraggable(FAB)
 
--- ════════════════════════════════════════════════════════════════
---  CORE LT2 FUNCTIONS
--- ════════════════════════════════════════════════════════════════
-
-local function setStatus(msg, colour)
-    StatusLabel.Text       = msg
-    StatusLabel.TextColor3 = colour or COL.subtext
-end
-
--- ── 1. Find the best axe in Backpack ─────────────────────────────
--- Source: Kykyry3kin/Lumber-Tycoon-2-Wood-Script — getBestAxe pattern
--- Axes are identified by FindFirstChild("ToolName") in backpack items.
--- Priority order by DPS (confirmed from LT2 wiki/fandom): Rukiryaxe > Silver > Hardened > Steel > Plain > Basic Hatchet
-local AXE_PRIORITY = {
-    "Rukiryaxe",         -- DPS ~4.2
-    "AxeAlphaTesters",   -- DPS ~3 (Alpha Axe)
-    "AxeBetaTesters",    -- DPS ~2.69
-    "Axe2",              -- Steel Axe DPS ~1.33
-    "Axe1",              -- Plain Axe
-    "BasicHatchet",      -- fallback
-}
-
-local function getBestAxe()
-    local char    = LP.Character
-    local backpack = LP.Backpack
-    if not char or not backpack then return nil end
-
-    -- Check equipped tool first
-    local equipped = char:FindFirstChildWhichIsA("Tool")
-    if equipped and equipped:FindFirstChild("ToolName") then
-        return equipped
-    end
-
-    -- Priority search
+-- ════════════════════════════
